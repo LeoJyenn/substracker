@@ -5325,7 +5325,9 @@ async function sendBarkNotification(title, content, config) {
     const payload = {
       title: title,
       body: content,
-      device_key: config.BARK_DEVICE_KEY
+      device_key: config.BARK_DEVICE_KEY,
+	  icon: 'https://dcn.pp.ua/uploads/icon.png',
+      sound: 'alarm'
     };
 
     // 如果配置了保存推送，则添加isArchive参数
