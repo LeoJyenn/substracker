@@ -3463,6 +3463,16 @@ const configPage = `
                 <p class="mt-1 text-sm text-gray-500">从 <a href="https://apps.apple.com/cn/app/bark-customed-notifications/id1403753865" target="_blank" class="text-indigo-600 hover:text-indigo-800">Bark iOS 应用</a> 中获取的设备Key</p>
               </div>
               <div>
+                <label for="barkIcon" class="block text-sm font-medium text-gray-700">自定义图标 URL (可选)</label>
+                <input type="url" id="barkIcon" placeholder="https://example.com/icon.png" class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+                <p class="mt-1 text-sm text-gray-500">用于推送通知显示的图标地址（建议 https 且可公网访问）</p>
+              </div>
+              <div>
+                <label for="barkSound" class="block text-sm font-medium text-gray-700">铃声 sound (可选)</label>
+                <input type="text" id="barkSound" placeholder="minuet.caf" class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+                <p class="mt-1 text-sm text-gray-500">填写 Bark 支持的铃声文件名（例如 <code>minuet.caf</code>）；留空则使用默认铃声</p>
+              </div>
+              <div>
                 <label for="barkIsArchive" class="block text-sm font-medium text-gray-700 mb-2">保存推送</label>
                 <label class="inline-flex items-center">
                   <input type="checkbox" id="barkIsArchive" class="form-checkbox h-4 w-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500">
@@ -3536,6 +3546,8 @@ const configPage = `
         document.getElementById('barkServer').value = config.BARK_SERVER || 'https://api.day.app';
         document.getElementById('barkDeviceKey').value = config.BARK_DEVICE_KEY || '';
         document.getElementById('barkIsArchive').checked = config.BARK_IS_ARCHIVE === 'true';
+        document.getElementById('barkIcon').value = config.BARK_ICON || '';
+        document.getElementById('barkSound').value = config.BARK_SOUND || '';
         document.getElementById('thirdPartyToken').value = config.THIRD_PARTY_API_TOKEN || '';
         const notificationHoursInput = document.getElementById('notificationHours');
         if (notificationHoursInput) {
@@ -3681,6 +3693,8 @@ const configPage = `
         BARK_SERVER: document.getElementById('barkServer').value.trim() || 'https://api.day.app',
         BARK_DEVICE_KEY: document.getElementById('barkDeviceKey').value.trim(),
         BARK_IS_ARCHIVE: document.getElementById('barkIsArchive').checked.toString(),
+        BARK_ICON: document.getElementById('barkIcon').value.trim(),
+        BARK_SOUND: document.getElementById('barkSound').value.trim(),
         ENABLED_NOTIFIERS: enabledNotifiers,
         TIMEZONE: document.getElementById('timezone').value.trim(),
         THIRD_PARTY_API_TOKEN: document.getElementById('thirdPartyToken').value.trim(),
@@ -3820,6 +3834,8 @@ const configPage = `
         config.BARK_SERVER = document.getElementById('barkServer').value.trim() || 'https://api.day.app';
         config.BARK_DEVICE_KEY = document.getElementById('barkDeviceKey').value.trim();
         config.BARK_IS_ARCHIVE = document.getElementById('barkIsArchive').checked.toString();
+        config.BARK_ICON = document.getElementById('barkIcon').value.trim();
+        config.BARK_SOUND = document.getElementById('barkSound').value.trim();
 
         if (!config.BARK_DEVICE_KEY) {
           showToast('请先填写 Bark 设备Key', 'warning');
@@ -4160,6 +4176,8 @@ const api = {
             BARK_DEVICE_KEY: newConfig.BARK_DEVICE_KEY || '',
             BARK_SERVER: newConfig.BARK_SERVER || 'https://api.day.app',
             BARK_IS_ARCHIVE: newConfig.BARK_IS_ARCHIVE || 'false',
+            BARK_ICON: newConfig.BARK_ICON || '',
+            BARK_SOUND: newConfig.BARK_SOUND || '',
             ENABLED_NOTIFIERS: newConfig.ENABLED_NOTIFIERS || ['notifyx'],
             TIMEZONE: newConfig.TIMEZONE || config.TIMEZONE || 'UTC',
             THIRD_PARTY_API_TOKEN: newConfig.THIRD_PARTY_API_TOKEN || ''
@@ -4289,7 +4307,9 @@ const api = {
             ...config,
             BARK_SERVER: body.BARK_SERVER,
             BARK_DEVICE_KEY: body.BARK_DEVICE_KEY,
-            BARK_IS_ARCHIVE: body.BARK_IS_ARCHIVE
+            BARK_IS_ARCHIVE: body.BARK_IS_ARCHIVE,
+            BARK_ICON: body.BARK_ICON,
+            BARK_SOUND: body.BARK_SOUND
           };
 
           const title = '测试通知';
@@ -4533,6 +4553,8 @@ async function getConfig(env) {
       BARK_DEVICE_KEY: config.BARK_DEVICE_KEY || '',
       BARK_SERVER: config.BARK_SERVER || 'https://api.day.app',
       BARK_IS_ARCHIVE: config.BARK_IS_ARCHIVE || 'false',
+      BARK_ICON: config.BARK_ICON || '',
+      BARK_SOUND: config.BARK_SOUND || '',
       ENABLED_NOTIFIERS: config.ENABLED_NOTIFIERS || ['notifyx'],
       TIMEZONE: config.TIMEZONE || 'UTC', // 新增时区字段
       NOTIFICATION_HOURS: Array.isArray(config.NOTIFICATION_HOURS) ? config.NOTIFICATION_HOURS : [],
@@ -4565,6 +4587,11 @@ async function getConfig(env) {
       EMAIL_FROM: '',
       EMAIL_FROM_NAME: '',
       EMAIL_TO: '',
+      BARK_DEVICE_KEY: '',
+      BARK_SERVER: 'https://api.day.app',
+      BARK_IS_ARCHIVE: 'false',
+      BARK_ICON: '',
+      BARK_SOUND: '',
       ENABLED_NOTIFIERS: ['notifyx'],
       NOTIFICATION_HOURS: [],
       TIMEZONE: 'UTC', // 新增时区字段
@@ -5325,10 +5352,16 @@ async function sendBarkNotification(title, content, config) {
     const payload = {
       title: title,
       body: content,
-      device_key: config.BARK_DEVICE_KEY,
-	  icon: 'https://dcn.pp.ua/uploads/icon.png',
-      sound: 'alarm'
+      device_key: config.BARK_DEVICE_KEY
     };
+
+    if (config.BARK_ICON) {
+      payload.icon = config.BARK_ICON;
+    }
+
+    if (config.BARK_SOUND) {
+      payload.sound = config.BARK_SOUND;
+    }
 
     // 如果配置了保存推送，则添加isArchive参数
     if (config.BARK_IS_ARCHIVE === 'true') {
