@@ -1214,7 +1214,7 @@ const adminPage = `
           </div>
 
           <div>
-            <label for="renewBase" class="block text-sm font-medium text-gray-700 mb-1">手动续期计算基准</label>
+            <label for="renewBase" class="block text-sm font-medium text-gray-700 mb-1">续期计算基准</label>
             <select id="renewBase"
               class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 bg-white">
               <option value="now" selected>按当前时间推算</option>
@@ -5864,6 +5864,7 @@ for (const subscription of subscriptions) {
   }
 
   const reminderSetting = resolveReminderSetting(subscription);
+  const renewBase = normalizeRenewBase(subscription.renewBase);
   let diffMs = 0;
   let diffHours = 0;
   let daysDiff;
@@ -5886,15 +5887,25 @@ for (const subscription of subscriptions) {
     diffHours = diffMs / MS_PER_HOUR;
 
     if (daysDiff < 0 && subscription.periodValue && subscription.periodUnit && subscription.autoRenew !== false) {
-      let nextLunar = lunar;
-      do {
-        nextLunar = lunarBiz.addLunarPeriod(nextLunar, subscription.periodValue, subscription.periodUnit);
-        const solar = lunarBiz.lunar2solar(nextLunar);
-        var newExpiryDate = new Date(solar.year, solar.month - 1, solar.day);
+      let newExpiryDate;
+      let newDaysDiff;
+
+      if (renewBase === 'now') {
+        newExpiryDate = calculateNextRenewalExpiryDate(subscription, currentTime);
         const newLunarMidnight = getTimezoneMidnightTimestamp(newExpiryDate, timezone);
-        daysDiff = Math.round((newLunarMidnight - currentMidnight) / MS_PER_DAY);
-        console.log('[定时任务] 订阅 "' + subscription.name + '" 更新到期日期: ' + newExpiryDate.toISOString() + ', 农历转换后午夜时间: ' + new Date(newLunarMidnight).toISOString() + ', 剩余天数: ' + daysDiff);
-      } while (daysDiff < 0);
+        newDaysDiff = Math.round((newLunarMidnight - currentMidnight) / MS_PER_DAY);
+        console.log('[定时任务] 订阅 "' + subscription.name + '" 按当前时间基准自动续订到: ' + newExpiryDate.toISOString() + ', 农历转换后午夜时间: ' + new Date(newLunarMidnight).toISOString() + ', 剩余天数: ' + newDaysDiff);
+      } else {
+        let nextLunar = lunar;
+        do {
+          nextLunar = lunarBiz.addLunarPeriod(nextLunar, subscription.periodValue, subscription.periodUnit);
+          const solar = lunarBiz.lunar2solar(nextLunar);
+          newExpiryDate = new Date(solar.year, solar.month - 1, solar.day);
+          const newLunarMidnight = getTimezoneMidnightTimestamp(newExpiryDate, timezone);
+          newDaysDiff = Math.round((newLunarMidnight - currentMidnight) / MS_PER_DAY);
+          console.log('[定时任务] 订阅 "' + subscription.name + '" 更新到期日期: ' + newExpiryDate.toISOString() + ', 农历转换后午夜时间: ' + new Date(newLunarMidnight).toISOString() + ', 剩余天数: ' + newDaysDiff);
+        } while (newDaysDiff < 0);
+      }
 
       diffMs = newExpiryDate.getTime() - currentTime.getTime();
       diffHours = diffMs / MS_PER_HOUR;
@@ -5903,12 +5914,12 @@ for (const subscription of subscriptions) {
       updatedSubscriptions.push(updatedSubscription);
       hasUpdates = true;
 
-      const shouldRemindAfterRenewal = shouldTriggerReminder(reminderSetting, daysDiff, diffHours);
+      const shouldRemindAfterRenewal = shouldTriggerReminder(reminderSetting, newDaysDiff, diffHours);
       if (shouldRemindAfterRenewal) {
         console.log('[定时任务] 订阅 "' + subscription.name + '" 在提醒范围内，将发送通知');
         expiringSubscriptions.push({
           ...updatedSubscription,
-          daysRemaining: daysDiff,
+          daysRemaining: newDaysDiff,
           hoursRemaining: Math.round(diffHours)
         });
       }
@@ -5926,30 +5937,39 @@ for (const subscription of subscriptions) {
     diffHours = diffMs / MS_PER_HOUR;
 
     if (daysDiff < 0 && subscription.periodValue && subscription.periodUnit && subscription.autoRenew !== false) {
-      const newExpiryDate = new Date(expiryDate);
+      let newExpiryDate;
+      let newExpiryMidnight;
 
-      if (subscription.periodUnit === 'day') {
-        newExpiryDate.setDate(expiryDate.getDate() + subscription.periodValue);
-      } else if (subscription.periodUnit === 'month') {
-        newExpiryDate.setMonth(expiryDate.getMonth() + subscription.periodValue);
-      } else if (subscription.periodUnit === 'year') {
-        newExpiryDate.setFullYear(expiryDate.getFullYear() + subscription.periodValue);
-      }
-
-      let newExpiryMidnight = getTimezoneMidnightTimestamp(newExpiryDate, timezone);
-      while (newExpiryMidnight < currentMidnight) {
-        console.log('[定时任务] 新计算的到期日期 ' + newExpiryDate.toISOString() + ' (时区转换后午夜: ' + new Date(newExpiryMidnight).toISOString() + ') 仍然过期，继续计算下一个周期');
-        if (subscription.periodUnit === 'day') {
-          newExpiryDate.setDate(newExpiryDate.getDate() + subscription.periodValue);
-        } else if (subscription.periodUnit === 'month') {
-          newExpiryDate.setMonth(newExpiryDate.getMonth() + subscription.periodValue);
-        } else if (subscription.periodUnit === 'year') {
-          newExpiryDate.setFullYear(newExpiryDate.getFullYear() + subscription.periodValue);
-        }
+      if (renewBase === 'now') {
+        newExpiryDate = calculateNextRenewalExpiryDate(subscription, currentTime);
         newExpiryMidnight = getTimezoneMidnightTimestamp(newExpiryDate, timezone);
-      }
+        console.log('[定时任务] 订阅 "' + subscription.name + '" 按当前时间基准自动续订到: ' + newExpiryDate.toISOString());
+      } else {
+        newExpiryDate = new Date(expiryDate);
 
-      console.log('[定时任务] 订阅 "' + subscription.name + '" 更新到期日期: ' + newExpiryDate.toISOString());
+        if (subscription.periodUnit === 'day') {
+          newExpiryDate.setDate(expiryDate.getDate() + subscription.periodValue);
+        } else if (subscription.periodUnit === 'month') {
+          newExpiryDate.setMonth(expiryDate.getMonth() + subscription.periodValue);
+        } else if (subscription.periodUnit === 'year') {
+          newExpiryDate.setFullYear(expiryDate.getFullYear() + subscription.periodValue);
+        }
+
+        newExpiryMidnight = getTimezoneMidnightTimestamp(newExpiryDate, timezone);
+        while (newExpiryMidnight < currentMidnight) {
+          console.log('[定时任务] 新计算的到期日期 ' + newExpiryDate.toISOString() + ' (时区转换后午夜: ' + new Date(newExpiryMidnight).toISOString() + ') 仍然过期，继续计算下一个周期');
+          if (subscription.periodUnit === 'day') {
+            newExpiryDate.setDate(newExpiryDate.getDate() + subscription.periodValue);
+          } else if (subscription.periodUnit === 'month') {
+            newExpiryDate.setMonth(newExpiryDate.getMonth() + subscription.periodValue);
+          } else if (subscription.periodUnit === 'year') {
+            newExpiryDate.setFullYear(newExpiryDate.getFullYear() + subscription.periodValue);
+          }
+          newExpiryMidnight = getTimezoneMidnightTimestamp(newExpiryDate, timezone);
+        }
+
+        console.log('[定时任务] 订阅 "' + subscription.name + '" 更新到期日期: ' + newExpiryDate.toISOString());
+      }
 
       diffMs = newExpiryDate.getTime() - currentTime.getTime();
       diffHours = diffMs / MS_PER_HOUR;
