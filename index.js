@@ -5155,34 +5155,8 @@ async function testSingleSubscriptionNotification(id, env, requestUrl = '') {
 
     const title = `手动测试通知: ${subscription.name}`;
 
-    // 检查是否显示农历（从配置中获取，默认不显示）
-    const showLunar = config.SHOW_LUNAR === true;
-    let lunarExpiryText = '';
-
-    if (showLunar) {
-      // 计算农历日期
-      const expiryDateObj = new Date(subscription.expiryDate);
-      const lunarExpiry = lunarCalendar.solar2lunar(expiryDateObj.getFullYear(), expiryDateObj.getMonth() + 1, expiryDateObj.getDate());
-      lunarExpiryText = lunarExpiry ? ` (农历: ${lunarExpiry.fullStr})` : '';
-    }
-
-    // 格式化到期日期（使用所选时区）
-    const timezone = config?.TIMEZONE || 'UTC';
-    const formattedExpiryDate = formatTimeInTimezone(new Date(subscription.expiryDate), timezone, 'date');
-    const currentTime = formatTimeInTimezone(new Date(), timezone, 'datetime');
-    
-    // 获取日历类型和自动续期状态
-    const calendarType = subscription.useLunar ? '农历' : '公历';
-    const autoRenewText = subscription.autoRenew ? '是' : '否';
-    
-    const commonContent = `**订阅详情**
-类型: ${subscription.customType || '其他'}
-日历类型: ${calendarType}
-到期日期: ${formattedExpiryDate}${lunarExpiryText}
-自动续期: ${autoRenewText}
-备注: ${subscription.notes || '无'}
-发送时间: ${currentTime}
-当前时区: ${formatTimezoneDisplay(timezone)}`;
+    const notificationSubscription = buildRealtimeNotificationSnapshot(subscription, config);
+    const commonContent = formatNotificationContent([notificationSubscription], config);
 
     // 使用多渠道发送
     const tags = extractTagsFromSubscriptions([subscription]);
@@ -5196,7 +5170,7 @@ async function testSingleSubscriptionNotification(id, env, requestUrl = '') {
     }
     await sendNotificationToAllChannels(title, commonContent, config, '[手动测试]', {
       metadata: { tags },
-      barkSubscriptions: [subscription],
+      barkSubscriptions: [notificationSubscription],
       barkBaseUrl
     });
 
@@ -5524,6 +5498,41 @@ ${reminderText}
   return content;
 }
 
+function buildRealtimeNotificationSnapshot(subscription, config) {
+  const timezone = config?.TIMEZONE || 'UTC';
+  const currentTime = getCurrentTimeInTimezone(timezone);
+  const currentMidnight = getTimezoneMidnightTimestamp(currentTime, timezone);
+  const expiryDate = new Date(subscription.expiryDate);
+
+  let daysDiff;
+  if (subscription.useLunar) {
+    const lunar = lunarCalendar.solar2lunar(
+      expiryDate.getFullYear(),
+      expiryDate.getMonth() + 1,
+      expiryDate.getDate()
+    );
+    if (lunar) {
+      const solar = lunarBiz.lunar2solar(lunar);
+      const lunarDate = new Date(solar.year, solar.month - 1, solar.day);
+      const lunarMidnight = getTimezoneMidnightTimestamp(lunarDate, timezone);
+      daysDiff = Math.round((lunarMidnight - currentMidnight) / MS_PER_DAY);
+    } else {
+      const expiryMidnight = getTimezoneMidnightTimestamp(expiryDate, timezone);
+      daysDiff = Math.round((expiryMidnight - currentMidnight) / MS_PER_DAY);
+    }
+  } else {
+    const expiryMidnight = getTimezoneMidnightTimestamp(expiryDate, timezone);
+    daysDiff = Math.round((expiryMidnight - currentMidnight) / MS_PER_DAY);
+  }
+
+  const diffHours = (expiryDate.getTime() - currentTime.getTime()) / MS_PER_HOUR;
+  return {
+    ...subscription,
+    daysRemaining: daysDiff,
+    hoursRemaining: Math.round(diffHours)
+  };
+}
+
 async function sendNotificationToAllChannels(title, commonContent, config, logPrefix = '[定时任务]', options = {}) {
   const metadata = options.metadata || {};
   const barkBaseUrl = typeof options.barkBaseUrl === 'string' ? options.barkBaseUrl : '';
@@ -5565,18 +5574,14 @@ async function sendNotificationToAllChannels(title, commonContent, config, logPr
     if (config.ENABLED_NOTIFIERS.includes('bark')) {
         const barkSubscriptions = Array.isArray(options.barkSubscriptions) ? options.barkSubscriptions : [];
         if (barkSubscriptions.length > 0) {
-          const timezone = config?.TIMEZONE || 'UTC';
           for (const sub of barkSubscriptions) {
-            const nextDateText = formatTimeInTimezone(new Date(sub.expiryDate), timezone, 'date');
-            const daysText = typeof sub.daysRemaining === 'number'
-              ? (sub.daysRemaining < 0 ? `已过期 ${Math.abs(sub.daysRemaining)} 天` : `剩余 ${sub.daysRemaining} 天`)
-              : '到期提醒';
             const barkTitle = `${title} - ${sub.name}`;
             const renewToken = await createRenewActionToken(sub.id, config);
             const renewUrl = buildRenewActionUrl(config, renewToken, barkBaseUrl);
+            const baseContent = formatNotificationContent([sub], config);
             const barkMarkdown = renewUrl
-              ? `订阅: ${sub.name}\n到期日期: ${nextDateText}\n状态: ${daysText}\n\n[一键续期（推进1个周期）](${renewUrl})`
-              : `订阅: ${sub.name}\n到期日期: ${nextDateText}\n状态: ${daysText}\n\n请先在系统配置中填写公开访问地址后再使用一键续期。`;
+              ? `${baseContent}\n\n[一键续期（推进1个周期）](${renewUrl})`
+              : `${baseContent}\n\n请先在系统配置中填写公开访问地址后再使用一键续期。`;
             const barkSuccess = await sendBarkNotification(barkTitle, barkMarkdown, config, { markdown: true });
             console.log(`${logPrefix} 发送Bark订阅通知(${sub.name}) ${barkSuccess ? '成功' : '失败'}`);
           }
