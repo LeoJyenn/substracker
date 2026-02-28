@@ -5563,11 +5563,10 @@ async function sendNotificationToAllChannels(title, commonContent, config, logPr
             const barkTitle = `${title} - ${sub.name}`;
             const renewToken = await createRenewActionToken(sub.id, config);
             const renewUrl = buildRenewActionUrl(config, renewToken);
-            const actionHint = renewUrl
-              ? '点击通知即可一键标记为已续期（推进1个周期）'
-              : '请先在系统配置中填写公开访问地址后再使用一键续期';
-            const barkBody = `订阅: ${sub.name}\n到期日期: ${nextDateText}\n状态: ${daysText}\n${actionHint}`;
-            const barkSuccess = await sendBarkNotification(barkTitle, barkBody, config, { clickUrl: renewUrl || undefined });
+            const barkMarkdown = renewUrl
+              ? `## ${sub.name}\n\n- 到期日期: ${nextDateText}\n- 状态: ${daysText}\n\n[一键续期（推进 1 个周期）](${renewUrl})`
+              : `## ${sub.name}\n\n- 到期日期: ${nextDateText}\n- 状态: ${daysText}\n\n> 请先在系统配置中填写公开访问地址后再使用一键续期。`;
+            const barkSuccess = await sendBarkNotification(barkTitle, barkMarkdown, config, { markdown: true });
             console.log(`${logPrefix} 发送Bark订阅通知(${sub.name}) ${barkSuccess ? '成功' : '失败'}`);
           }
         } else {
@@ -5649,9 +5648,14 @@ async function sendBarkNotification(title, content, config, options = {}) {
     const url = serverUrl + '/push';
     const payload = {
       title: title,
-      body: content,
       device_key: config.BARK_DEVICE_KEY
     };
+
+    if (options.markdown) {
+      payload.markdown = content;
+    } else {
+      payload.body = content;
+    }
 
     if (config.BARK_ICON) {
       payload.icon = config.BARK_ICON;
@@ -5659,10 +5663,6 @@ async function sendBarkNotification(title, content, config, options = {}) {
 
     if (config.BARK_SOUND) {
       payload.sound = config.BARK_SOUND;
-    }
-
-    if (options.clickUrl && typeof options.clickUrl === 'string') {
-      payload.url = options.clickUrl;
     }
 
     // 如果配置了保存推送，则添加isArchive参数
