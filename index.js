@@ -1989,6 +1989,11 @@ const lunarBiz = {
           : (reminder.unit === 'hour' ? '<div class="text-xs text-gray-500 mt-1">小时级提醒</div>' : '');
         const reminderHtml = '<div><i class="fas fa-bell mr-1"></i>' + reminder.displayText + '</div>' + reminderExtra;
 
+        const canManualRenew = Number(subscription.periodValue) > 0 && ['day', 'month', 'year'].includes(subscription.periodUnit);
+        const renewButtonHtml = canManualRenew
+          ? '<button class="renew-subscription btn-secondary text-white px-2 py-1 rounded text-xs whitespace-nowrap" data-id="' + subscription.id + '"><i class="fas fa-check-circle mr-1"></i>已续期</button>'
+          : '<button class="btn-secondary text-white px-2 py-1 rounded text-xs whitespace-nowrap opacity-60 cursor-not-allowed" disabled title="请先设置有效周期"><i class="fas fa-check-circle mr-1"></i>已续期</button>';
+
         row.innerHTML =
           '<td data-label="名称" class="px-4 py-3"><div class="td-content-wrapper">' +
             nameHtml +
@@ -2016,6 +2021,7 @@ const lunarBiz = {
           '<td data-label="操作" class="px-4 py-3">' +
             '<div class="action-buttons-wrapper">' +
               '<button class="edit btn-primary text-white px-2 py-1 rounded text-xs whitespace-nowrap" data-id="' + subscription.id + '"><i class="fas fa-edit mr-1"></i>编辑</button>' +
+              renewButtonHtml +
               '<button class="test-notify btn-info text-white px-2 py-1 rounded text-xs whitespace-nowrap" data-id="' + subscription.id + '"><i class="fas fa-paper-plane mr-1"></i>测试</button>' +
               '<button class="delete btn-danger text-white px-2 py-1 rounded text-xs whitespace-nowrap" data-id="' + subscription.id + '"><i class="fas fa-trash-alt mr-1"></i>删除</button>' +
               (subscription.isActive
@@ -2037,6 +2043,10 @@ const lunarBiz = {
 
       document.querySelectorAll('.toggle-status').forEach(button => {
         button.addEventListener('click', toggleSubscriptionStatus);
+      });
+
+      document.querySelectorAll('.renew-subscription').forEach(button => {
+        button.addEventListener('click', renewSubscription);
       });
 
       document.querySelectorAll('.test-notify').forEach(button => {
@@ -2115,6 +2125,35 @@ const lunarBiz = {
             button.innerHTML = originalContent;
             button.disabled = false;
         }
+    }
+
+    async function renewSubscription(e) {
+      const button = e.target.tagName === 'BUTTON' ? e.target : e.target.parentElement;
+      const id = button.dataset.id;
+      const originalContent = button.innerHTML;
+      button.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>续期中...';
+      button.disabled = true;
+
+      try {
+        const response = await fetch('/api/subscriptions/' + id + '/renew', {
+          method: 'POST'
+        });
+        const result = await response.json();
+
+        if (response.ok && result.success) {
+          showToast('续期成功，到期日已更新', 'success');
+          loadSubscriptions(false);
+        } else {
+          showToast(result.message || '续期失败，请先检查周期设置', 'error');
+          button.innerHTML = originalContent;
+          button.disabled = false;
+        }
+      } catch (error) {
+        console.error('手动续期失败:', error);
+        showToast('续期失败，请稍后再试', 'error');
+        button.innerHTML = originalContent;
+        button.disabled = false;
+      }
     }
     
     async function toggleSubscriptionStatus(e) {
@@ -3314,6 +3353,13 @@ const configPage = `
             </div>
             <p class="mt-1 text-sm text-gray-500">调用 /api/notify/{token} 接口时需携带此令牌；留空表示禁用第三方 API 推送。</p>
           </div>
+
+          <div class="mb-6">
+            <label for="publicBaseUrl" class="block text-sm font-medium text-gray-700">公开访问地址</label>
+            <input type="url" id="publicBaseUrl" placeholder="https://your-worker.workers.dev"
+              class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+            <p class="mt-1 text-sm text-gray-500">用于生成 Bark 一键续期链接。建议填写当前站点可公网访问的完整地址（不要带末尾 /）。</p>
+          </div>
           
           <div id="telegramConfig" class="config-section">
             <h4 class="text-md font-medium text-gray-900 mb-3">Telegram 配置</h4>
@@ -3549,6 +3595,7 @@ const configPage = `
         document.getElementById('barkIcon').value = config.BARK_ICON || '';
         document.getElementById('barkSound').value = config.BARK_SOUND || '';
         document.getElementById('thirdPartyToken').value = config.THIRD_PARTY_API_TOKEN || '';
+        document.getElementById('publicBaseUrl').value = config.PUBLIC_BASE_URL || '';
         const notificationHoursInput = document.getElementById('notificationHours');
         if (notificationHoursInput) {
           // 将通知小时数组格式化为逗号分隔的字符串，便于管理员查看与编辑
@@ -3698,6 +3745,7 @@ const configPage = `
         ENABLED_NOTIFIERS: enabledNotifiers,
         TIMEZONE: document.getElementById('timezone').value.trim(),
         THIRD_PARTY_API_TOKEN: document.getElementById('thirdPartyToken').value.trim(),
+        PUBLIC_BASE_URL: document.getElementById('publicBaseUrl').value.trim(),
         // 前端先行整理通知小时列表，后端仍会再次校验
         NOTIFICATION_HOURS: (() => {
           const raw = document.getElementById('notificationHours').value.trim();
@@ -4180,7 +4228,8 @@ const api = {
             BARK_SOUND: newConfig.BARK_SOUND || '',
             ENABLED_NOTIFIERS: newConfig.ENABLED_NOTIFIERS || ['notifyx'],
             TIMEZONE: newConfig.TIMEZONE || config.TIMEZONE || 'UTC',
-            THIRD_PARTY_API_TOKEN: newConfig.THIRD_PARTY_API_TOKEN || ''
+            THIRD_PARTY_API_TOKEN: newConfig.THIRD_PARTY_API_TOKEN || '',
+            PUBLIC_BASE_URL: normalizePublicBaseUrl(newConfig.PUBLIC_BASE_URL || '')
           };
 
           const rawNotificationHours = Array.isArray(newConfig.NOTIFICATION_HOURS)
@@ -4372,6 +4421,17 @@ const api = {
         );
       }
 
+      if (parts[3] === 'renew' && method === 'POST') {
+        const result = await renewSubscription(id, env, { source: 'admin' });
+        return new Response(
+          JSON.stringify(result),
+          {
+            status: result.success ? 200 : 400,
+            headers: { 'Content-Type': 'application/json' }
+          }
+        );
+      }
+
       if (parts[3] === 'test-notify' && method === 'POST') {
         const result = await testSingleSubscriptionNotification(id, env);
         return new Response(JSON.stringify(result), { status: result.success ? 200 : 500, headers: { 'Content-Type': 'application/json' } });
@@ -4507,6 +4567,154 @@ function generateRandomSecret() {
   return result;
 }
 
+const ACTION_TOKEN_TTL_SECONDS = 15 * 60;
+const RENEW_NONCE_PREFIX = 'renew_nonce:';
+
+function toBase64Url(value) {
+  return btoa(value).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+function fromBase64Url(value) {
+  const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = normalized + '='.repeat((4 - normalized.length % 4) % 4);
+  return atob(padded);
+}
+
+function generateNonce(length = 16) {
+  const bytes = new Uint8Array(length);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes).map(byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+async function createSignedActionToken(payload, secret) {
+  const payloadJson = JSON.stringify(payload);
+  const payloadBase64 = toBase64Url(payloadJson);
+  const signature = await CryptoJS.HmacSHA256(payloadBase64, secret);
+  return payloadBase64 + '.' + signature;
+}
+
+async function parseSignedActionToken(token, secret) {
+  try {
+    if (!token || typeof token !== 'string') {
+      return { valid: false, message: '缺少 token' };
+    }
+    const [payloadBase64, signature] = token.split('.');
+    if (!payloadBase64 || !signature) {
+      return { valid: false, message: 'token 格式错误' };
+    }
+
+    const expectedSignature = await CryptoJS.HmacSHA256(payloadBase64, secret);
+    if (expectedSignature !== signature) {
+      return { valid: false, message: 'token 签名无效' };
+    }
+
+    const payloadText = fromBase64Url(payloadBase64);
+    const payload = JSON.parse(payloadText);
+    return { valid: true, payload };
+  } catch (error) {
+    return { valid: false, message: 'token 解析失败' };
+  }
+}
+
+function normalizePublicBaseUrl(baseUrl) {
+  if (!baseUrl || typeof baseUrl !== 'string') {
+    return '';
+  }
+  const trimmed = baseUrl.trim();
+  if (!trimmed) {
+    return '';
+  }
+  try {
+    const parsed = new URL(trimmed);
+    parsed.pathname = parsed.pathname.replace(/\/$/, '');
+    parsed.hash = '';
+    parsed.search = '';
+    return parsed.toString().replace(/\/$/, '');
+  } catch (error) {
+    return '';
+  }
+}
+
+async function createRenewActionToken(subscriptionId, config) {
+  if (!subscriptionId) {
+    return '';
+  }
+  const secret = config && config.JWT_SECRET ? config.JWT_SECRET : '';
+  if (!secret) {
+    return '';
+  }
+
+  const expiresAt = Math.floor(Date.now() / 1000) + ACTION_TOKEN_TTL_SECONDS;
+  const payload = {
+    action: 'renew',
+    subscriptionId: String(subscriptionId),
+    exp: expiresAt,
+    nonce: generateNonce(16)
+  };
+  return createSignedActionToken(payload, secret);
+}
+
+function buildRenewActionUrl(config, token) {
+  const baseUrl = normalizePublicBaseUrl(config && config.PUBLIC_BASE_URL ? config.PUBLIC_BASE_URL : '');
+  if (!baseUrl || !token) {
+    return '';
+  }
+  try {
+    const actionUrl = new URL(baseUrl);
+    actionUrl.pathname = '/renew';
+    actionUrl.searchParams.set('token', token);
+    return actionUrl.toString();
+  } catch (error) {
+    return '';
+  }
+}
+
+function renderRenewActionResultPage(title, message, isSuccess) {
+  const statusColor = isSuccess ? '#15803d' : '#b91c1c';
+  const buttonColor = isSuccess ? '#16a34a' : '#dc2626';
+  return `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${title}</title>
+  <style>
+    body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f3f4f6; color: #111827; }
+    .container { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; }
+    .card { width: 100%; max-width: 520px; background: #ffffff; border-radius: 14px; box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08); padding: 28px; }
+    h1 { margin: 0 0 12px; color: ${statusColor}; font-size: 24px; }
+    p { margin: 0; line-height: 1.7; color: #374151; }
+    .button { margin-top: 20px; display: inline-block; background: ${buttonColor}; color: #ffffff; padding: 10px 16px; border-radius: 8px; text-decoration: none; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="card">
+      <h1>${title}</h1>
+      <p>${message}</p>
+      <a class="button" href="/admin">返回后台</a>
+    </div>
+  </div>
+</body>
+</html>`;
+}
+
+async function isRenewNonceUsed(env, nonce) {
+  if (!env || !env.SUBSCRIPTIONS_KV || !nonce) {
+    return false;
+  }
+  const existing = await env.SUBSCRIPTIONS_KV.get(RENEW_NONCE_PREFIX + nonce);
+  return !!existing;
+}
+
+async function markRenewNonceUsed(env, nonce, ttlSeconds) {
+  if (!env || !env.SUBSCRIPTIONS_KV || !nonce) {
+    return;
+  }
+  const normalizedTtl = Number(ttlSeconds) > 0 ? Math.ceil(Number(ttlSeconds)) : ACTION_TOKEN_TTL_SECONDS;
+  await env.SUBSCRIPTIONS_KV.put(RENEW_NONCE_PREFIX + nonce, '1', { expirationTtl: normalizedTtl });
+}
+
 async function getConfig(env) {
   try {
     if (!env.SUBSCRIPTIONS_KV) {
@@ -4558,7 +4766,8 @@ async function getConfig(env) {
       ENABLED_NOTIFIERS: config.ENABLED_NOTIFIERS || ['notifyx'],
       TIMEZONE: config.TIMEZONE || 'UTC', // 新增时区字段
       NOTIFICATION_HOURS: Array.isArray(config.NOTIFICATION_HOURS) ? config.NOTIFICATION_HOURS : [],
-      THIRD_PARTY_API_TOKEN: config.THIRD_PARTY_API_TOKEN || ''
+      THIRD_PARTY_API_TOKEN: config.THIRD_PARTY_API_TOKEN || '',
+      PUBLIC_BASE_URL: normalizePublicBaseUrl(config.PUBLIC_BASE_URL || '')
     };
 
     console.log('[配置] 最终配置用户名:', finalConfig.ADMIN_USERNAME);
@@ -4595,7 +4804,8 @@ async function getConfig(env) {
       ENABLED_NOTIFIERS: ['notifyx'],
       NOTIFICATION_HOURS: [],
       TIMEZONE: 'UTC', // 新增时区字段
-      THIRD_PARTY_API_TOKEN: ''
+      THIRD_PARTY_API_TOKEN: '',
+      PUBLIC_BASE_URL: ''
     };
   }
 }
@@ -4864,6 +5074,73 @@ async function toggleSubscriptionStatus(id, isActive, env) {
     return { success: true, subscription: subscriptions[index] };
   } catch (error) {
     return { success: false, message: '更新订阅状态失败' };
+  }
+}
+
+function calculateNextRenewalExpiryDate(subscription) {
+  const periodValue = Number(subscription.periodValue);
+  const periodUnit = subscription.periodUnit;
+  if (!(periodValue > 0) || !['day', 'month', 'year'].includes(periodUnit)) {
+    throw new Error('当前订阅缺少有效周期，无法手动续期');
+  }
+
+  const expiryDate = new Date(subscription.expiryDate);
+  if (isNaN(expiryDate.getTime())) {
+    throw new Error('到期日期格式无效，无法续期');
+  }
+
+  if (subscription.useLunar) {
+    const lunar = lunarCalendar.solar2lunar(
+      expiryDate.getFullYear(),
+      expiryDate.getMonth() + 1,
+      expiryDate.getDate()
+    );
+    if (!lunar) {
+      throw new Error('农历日期超出支持范围（1900-2100年）');
+    }
+    const nextLunar = lunarBiz.addLunarPeriod(lunar, periodValue, periodUnit);
+    const solar = lunarBiz.lunar2solar(nextLunar);
+    return new Date(solar.year, solar.month - 1, solar.day);
+  }
+
+  const nextExpiryDate = new Date(expiryDate);
+  if (periodUnit === 'day') {
+    nextExpiryDate.setDate(nextExpiryDate.getDate() + periodValue);
+  } else if (periodUnit === 'month') {
+    nextExpiryDate.setMonth(nextExpiryDate.getMonth() + periodValue);
+  } else if (periodUnit === 'year') {
+    nextExpiryDate.setFullYear(nextExpiryDate.getFullYear() + periodValue);
+  }
+
+  return nextExpiryDate;
+}
+
+async function renewSubscription(id, env, options = {}) {
+  try {
+    const subscriptions = await getAllSubscriptions(env);
+    const index = subscriptions.findIndex(s => s.id === id);
+
+    if (index === -1) {
+      return { success: false, message: '订阅不存在' };
+    }
+
+    const subscription = subscriptions[index];
+    const nextExpiryDate = calculateNextRenewalExpiryDate(subscription);
+    const source = options.source || 'manual';
+
+    subscriptions[index] = {
+      ...subscription,
+      expiryDate: nextExpiryDate.toISOString(),
+      updatedAt: new Date().toISOString(),
+      lastManualRenewAt: new Date().toISOString(),
+      lastManualRenewSource: source
+    };
+
+    await env.SUBSCRIPTIONS_KV.put('subscriptions', JSON.stringify(subscriptions));
+
+    return { success: true, subscription: subscriptions[index] };
+  } catch (error) {
+    return { success: false, message: error && error.message ? error.message : '续期失败' };
   }
 }
 
@@ -5274,9 +5551,29 @@ async function sendNotificationToAllChannels(title, commonContent, config, logPr
         console.log(`${logPrefix} 发送邮件通知 ${success ? '成功' : '失败'}`);
     }
     if (config.ENABLED_NOTIFIERS.includes('bark')) {
-        const barkContent = commonContent.replace(/(\**|\*|##|#|`)/g, '');
-        const success = await sendBarkNotification(title, barkContent, config);
-        console.log(`${logPrefix} 发送Bark通知 ${success ? '成功' : '失败'}`);
+        const barkSubscriptions = Array.isArray(options.barkSubscriptions) ? options.barkSubscriptions : [];
+        if (barkSubscriptions.length > 0) {
+          const timezone = config?.TIMEZONE || 'UTC';
+          for (const sub of barkSubscriptions) {
+            const nextDateText = formatTimeInTimezone(new Date(sub.expiryDate), timezone, 'date');
+            const daysText = typeof sub.daysRemaining === 'number'
+              ? (sub.daysRemaining < 0 ? `已过期 ${Math.abs(sub.daysRemaining)} 天` : `剩余 ${sub.daysRemaining} 天`)
+              : '到期提醒';
+            const barkTitle = `${title} - ${sub.name}`;
+            const renewToken = await createRenewActionToken(sub.id, config);
+            const renewUrl = buildRenewActionUrl(config, renewToken);
+            const actionHint = renewUrl
+              ? '点击通知即可一键标记为已续期（推进1个周期）'
+              : '请先在系统配置中填写公开访问地址后再使用一键续期';
+            const barkBody = `订阅: ${sub.name}\n到期日期: ${nextDateText}\n状态: ${daysText}\n${actionHint}`;
+            const barkSuccess = await sendBarkNotification(barkTitle, barkBody, config, { clickUrl: renewUrl || undefined });
+            console.log(`${logPrefix} 发送Bark订阅通知(${sub.name}) ${barkSuccess ? '成功' : '失败'}`);
+          }
+        } else {
+          const barkContent = commonContent.replace(/(\**|\*|##|#|`)/g, '');
+          const success = await sendBarkNotification(title, barkContent, config);
+          console.log(`${logPrefix} 发送Bark通知 ${success ? '成功' : '失败'}`);
+        }
     }
 }
 
@@ -5338,7 +5635,7 @@ async function sendNotifyXNotification(title, content, description, config) {
   }
 }
 
-async function sendBarkNotification(title, content, config) {
+async function sendBarkNotification(title, content, config, options = {}) {
   try {
     if (!config.BARK_DEVICE_KEY) {
       console.error('[Bark] 通知未配置，缺少设备Key');
@@ -5361,6 +5658,10 @@ async function sendBarkNotification(title, content, config) {
 
     if (config.BARK_SOUND) {
       payload.sound = config.BARK_SOUND;
+    }
+
+    if (options.clickUrl && typeof options.clickUrl === 'string') {
+      payload.url = options.clickUrl;
     }
 
     // 如果配置了保存推送，则添加isArchive参数
@@ -5662,12 +5963,89 @@ for (const subscription of subscriptions) {
 
         const title = '订阅到期提醒';
         await sendNotificationToAllChannels(title, commonContent, config, '[定时任务]', {
-          metadata: { tags: metadataTags }
+          metadata: { tags: metadataTags },
+          barkSubscriptions: expiringSubscriptions
         });
       }
     }
   } catch (error) {
     console.error('[定时任务] 检查即将到期的订阅失败:', error);
+  }
+}
+
+async function handleRenewActionRequest(request, env) {
+  try {
+    const url = new URL(request.url);
+    const token = (url.searchParams.get('token') || '').trim();
+    const config = await getConfig(env);
+
+    if (!token) {
+      return new Response(
+        renderRenewActionResultPage('续期失败', '缺少续期令牌，请从最新通知中重新进入。', false),
+        { status: 400, headers: { 'Content-Type': 'text/html; charset=utf-8' } }
+      );
+    }
+
+    const parsed = await parseSignedActionToken(token, config.JWT_SECRET);
+    if (!parsed.valid) {
+      return new Response(
+        renderRenewActionResultPage('续期失败', parsed.message || '续期令牌无效，请重新打开通知。', false),
+        { status: 401, headers: { 'Content-Type': 'text/html; charset=utf-8' } }
+      );
+    }
+
+    const payload = parsed.payload || {};
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    if (payload.action !== 'renew' || !payload.subscriptionId || !payload.nonce) {
+      return new Response(
+        renderRenewActionResultPage('续期失败', '续期令牌内容无效，请重新打开通知。', false),
+        { status: 400, headers: { 'Content-Type': 'text/html; charset=utf-8' } }
+      );
+    }
+
+    if (!payload.exp || Number(payload.exp) < nowSeconds) {
+      return new Response(
+        renderRenewActionResultPage('链接已失效', '该一键续期链接已过期，请等待下一条提醒通知。', false),
+        { status: 410, headers: { 'Content-Type': 'text/html; charset=utf-8' } }
+      );
+    }
+
+    const nonceUsed = await isRenewNonceUsed(env, payload.nonce);
+    if (nonceUsed) {
+      return new Response(
+        renderRenewActionResultPage('链接已使用', '该续期链接已被使用，请勿重复点击。', false),
+        { status: 409, headers: { 'Content-Type': 'text/html; charset=utf-8' } }
+      );
+    }
+
+    const ttlSeconds = Number(payload.exp) - nowSeconds;
+    await markRenewNonceUsed(env, payload.nonce, ttlSeconds);
+
+    const renewResult = await renewSubscription(String(payload.subscriptionId), env, { source: 'bark_link' });
+    if (!renewResult.success) {
+      return new Response(
+        renderRenewActionResultPage('续期失败', renewResult.message || '续期执行失败，请稍后重试。', false),
+        { status: 400, headers: { 'Content-Type': 'text/html; charset=utf-8' } }
+      );
+    }
+
+    const timezone = config?.TIMEZONE || 'UTC';
+    const renewedSubscription = renewResult.subscription || {};
+    const expiryText = renewedSubscription.expiryDate
+      ? formatTimeInTimezone(new Date(renewedSubscription.expiryDate), timezone, 'date')
+      : '未知';
+    const successMessage = `订阅「${renewedSubscription.name || '未命名订阅'}」已续期成功。新的到期日期为 ${expiryText}。`;
+
+    return new Response(
+      renderRenewActionResultPage('续期成功', successMessage, true),
+      { headers: { 'Content-Type': 'text/html; charset=utf-8' } }
+    );
+  } catch (error) {
+    console.error('[续期链接] 处理失败:', error);
+    return new Response(
+      renderRenewActionResultPage('续期失败', '服务暂时不可用，请稍后重试。', false),
+      { status: 500, headers: { 'Content-Type': 'text/html; charset=utf-8' } }
+    );
   }
 }
 
@@ -5787,6 +6165,10 @@ export default {
           headers: { 'Content-Type': 'text/plain; charset=utf-8' }
         });
       }
+    }
+
+    if (url.pathname === '/renew') {
+      return handleRenewActionRequest(request, env);
     }
 
     if (url.pathname.startsWith('/api')) {
