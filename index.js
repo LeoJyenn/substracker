@@ -5575,7 +5575,7 @@ async function sendNotificationToAllChannels(title, commonContent, config, logPr
         const barkSubscriptions = Array.isArray(options.barkSubscriptions) ? options.barkSubscriptions : [];
         if (barkSubscriptions.length > 0) {
           for (const sub of barkSubscriptions) {
-            const barkTitle = title.includes(sub.name) ? title : `${title} - ${sub.name}`;
+            const barkTitle = title;
             const renewToken = await createRenewActionToken(sub.id, config);
             const renewUrl = buildRenewActionUrl(config, renewToken, barkBaseUrl);
             const baseContent = formatNotificationContent([sub], config).replace(/[\*#`]/g, '');
