@@ -4707,9 +4707,22 @@ function renderRenewActionResultPage(title, message, isSuccess) {
     <div class="card">
       <h1>${title}</h1>
       <p>${message}</p>
-      <a class="button" href="/admin">返回后台</a>
+      <a id="returnToBarkBtn" class="button" href="bark://">返回 Bark</a>
     </div>
   </div>
+  <script>
+    (function setupBarkFallback() {
+      var button = document.getElementById('returnToBarkBtn');
+      if (!button) {
+        return;
+      }
+      button.addEventListener('click', function () {
+        setTimeout(function () {
+          window.location.href = '/admin';
+        }, 900);
+      });
+    })();
+  </script>
 </body>
 </html>`;
 }
