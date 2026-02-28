@@ -1991,8 +1991,8 @@ const lunarBiz = {
 
         const canManualRenew = Number(subscription.periodValue) > 0 && ['day', 'month', 'year'].includes(subscription.periodUnit);
         const renewButtonHtml = canManualRenew
-          ? '<button class="renew-subscription btn-secondary text-white px-2 py-1 rounded text-xs whitespace-nowrap" data-id="' + subscription.id + '"><i class="fas fa-check-circle mr-1"></i>已续期</button>'
-          : '<button class="btn-secondary text-white px-2 py-1 rounded text-xs whitespace-nowrap opacity-60 cursor-not-allowed" disabled title="请先设置有效周期"><i class="fas fa-check-circle mr-1"></i>已续期</button>';
+          ? '<button class="renew-subscription btn-info text-white px-2 py-1 rounded text-xs whitespace-nowrap" data-id="' + subscription.id + '"><i class="fas fa-check-circle mr-1"></i>已续期</button>'
+          : '<button class="btn-info text-white px-2 py-1 rounded text-xs whitespace-nowrap opacity-60 cursor-not-allowed" disabled title="请先设置有效周期"><i class="fas fa-check-circle mr-1"></i>已续期</button>';
 
         row.innerHTML =
           '<td data-label="名称" class="px-4 py-3"><div class="td-content-wrapper">' +
@@ -5186,7 +5186,8 @@ async function testSingleSubscriptionNotification(id, env) {
     // 使用多渠道发送
     const tags = extractTagsFromSubscriptions([subscription]);
     await sendNotificationToAllChannels(title, commonContent, config, '[手动测试]', {
-      metadata: { tags }
+      metadata: { tags },
+      barkSubscriptions: [subscription]
     });
 
     return { success: true, message: '测试通知已发送到所有启用的渠道' };
