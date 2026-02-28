@@ -5171,7 +5171,8 @@ async function testSingleSubscriptionNotification(id, env, requestUrl = '') {
     await sendNotificationToAllChannels(title, commonContent, config, '[手动测试]', {
       metadata: { tags },
       barkSubscriptions: [notificationSubscription],
-      barkBaseUrl
+      barkBaseUrl,
+      barkKeepOriginalTitle: true
     });
 
     return { success: true, message: '测试通知已发送到所有启用的渠道' };
@@ -5536,6 +5537,7 @@ function buildRealtimeNotificationSnapshot(subscription, config) {
 async function sendNotificationToAllChannels(title, commonContent, config, logPrefix = '[定时任务]', options = {}) {
   const metadata = options.metadata || {};
   const barkBaseUrl = typeof options.barkBaseUrl === 'string' ? options.barkBaseUrl : '';
+  const barkKeepOriginalTitle = options.barkKeepOriginalTitle === true;
     if (!config.ENABLED_NOTIFIERS || config.ENABLED_NOTIFIERS.length === 0) {
         console.log(`${logPrefix} 未启用任何通知渠道。`);
         return;
@@ -5575,14 +5577,14 @@ async function sendNotificationToAllChannels(title, commonContent, config, logPr
         const barkSubscriptions = Array.isArray(options.barkSubscriptions) ? options.barkSubscriptions : [];
         if (barkSubscriptions.length > 0) {
           for (const sub of barkSubscriptions) {
-            const barkTitle = `${title} - ${sub.name}`;
+            const barkTitle = barkKeepOriginalTitle ? title : `${title} - ${sub.name}`;
             const renewToken = await createRenewActionToken(sub.id, config);
             const renewUrl = buildRenewActionUrl(config, renewToken, barkBaseUrl);
-            const baseContent = formatNotificationContent([sub], config).replace(/(\**|\*|##|#|`)/g, '');
+            const baseContent = formatNotificationContent([sub], config);
             const barkContent = renewUrl
-              ? `${baseContent}\n续期链接: ${renewUrl}`
+              ? `${baseContent}\n\n续期完成？ [点击同步](${renewUrl})`
               : `${baseContent}\n续期链接不可用，请先在系统配置中填写公开访问地址。`;
-            const barkSuccess = await sendBarkNotification(barkTitle, barkContent, config);
+            const barkSuccess = await sendBarkNotification(barkTitle, barkContent, config, { useMarkdown: true });
             console.log(`${logPrefix} 发送Bark订阅通知(${sub.name}) ${barkSuccess ? '成功' : '失败'}`);
           }
         } else {
@@ -5651,7 +5653,7 @@ async function sendNotifyXNotification(title, content, description, config) {
   }
 }
 
-async function sendBarkNotification(title, content, config) {
+async function sendBarkNotification(title, content, config, options = {}) {
   try {
     if (!config.BARK_DEVICE_KEY) {
       console.error('[Bark] 通知未配置，缺少设备Key');
@@ -5664,9 +5666,14 @@ async function sendBarkNotification(title, content, config) {
     const url = serverUrl + '/push';
     const payload = {
       title: title,
-      body: content,
       device_key: config.BARK_DEVICE_KEY
     };
+
+    if (options.useMarkdown) {
+      payload.markdown = content;
+    } else {
+      payload.body = content;
+    }
 
     if (config.BARK_ICON) {
       payload.icon = config.BARK_ICON;
