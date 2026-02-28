@@ -5534,15 +5534,6 @@ function buildRealtimeNotificationSnapshot(subscription, config) {
   };
 }
 
-function escapeBarkMarkdownPlainText(text) {
-  if (typeof text !== 'string' || text.length === 0) {
-    return '';
-  }
-  return text
-    .replace(/\\/g, '\\\\')
-    .replace(/([`*_{}\[\]()#+\-!|>])/g, '\\$1');
-}
-
 async function sendNotificationToAllChannels(title, commonContent, config, logPrefix = '[定时任务]', options = {}) {
   const metadata = options.metadata || {};
   const barkBaseUrl = typeof options.barkBaseUrl === 'string' ? options.barkBaseUrl : '';
@@ -5589,11 +5580,10 @@ async function sendNotificationToAllChannels(title, commonContent, config, logPr
             const barkTitle = barkKeepOriginalTitle ? title : `${title} - ${sub.name}`;
             const renewToken = await createRenewActionToken(sub.id, config);
             const renewUrl = buildRenewActionUrl(config, renewToken, barkBaseUrl);
-            const baseContent = formatNotificationContent([sub], config);
-            const escapedBaseContent = escapeBarkMarkdownPlainText(baseContent);
+            const baseContent = formatNotificationContent([sub], config).replace(/(\**|\*|##|#|`)/g, '');
             const barkContent = renewUrl
-              ? `${escapedBaseContent}\n\n续期完成？ [点击同步](${renewUrl})`
-              : `${escapedBaseContent}\n\n续期链接不可用，请先在系统配置中填写公开访问地址。`;
+              ? `${baseContent}\n\n续期完成？ [点击同步](${renewUrl})`
+              : `${baseContent}\n\n续期链接不可用，请先在系统配置中填写公开访问地址。`;
             const barkSuccess = await sendBarkNotification(barkTitle, barkContent, config, { useMarkdown: true });
             console.log(`${logPrefix} 发送Bark订阅通知(${sub.name}) ${barkSuccess ? '成功' : '失败'}`);
           }
