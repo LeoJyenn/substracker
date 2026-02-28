@@ -3360,6 +3360,15 @@ const configPage = `
               class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
             <p class="mt-1 text-sm text-gray-500">用于生成 Bark 一键续期链接。建议填写当前站点可公网访问的完整地址（不要带末尾 /）。</p>
           </div>
+
+          <div class="mb-6">
+            <label for="renewBase" class="block text-sm font-medium text-gray-700">手动续期计算基准</label>
+            <select id="renewBase" class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+              <option value="now">按当前时间推算（推荐）</option>
+              <option value="expiry">按原到期时间推算</option>
+            </select>
+            <p class="mt-1 text-sm text-gray-500">“按当前时间推算”适合提前提醒场景，点击“已续期/点击同步”后从当前时间往后加一个周期。</p>
+          </div>
           
           <div id="telegramConfig" class="config-section">
             <h4 class="text-md font-medium text-gray-900 mb-3">Telegram 配置</h4>
@@ -3596,6 +3605,7 @@ const configPage = `
         document.getElementById('barkSound').value = config.BARK_SOUND || '';
         document.getElementById('thirdPartyToken').value = config.THIRD_PARTY_API_TOKEN || '';
         document.getElementById('publicBaseUrl').value = config.PUBLIC_BASE_URL || '';
+        document.getElementById('renewBase').value = config.RENEW_BASE || 'now';
         const notificationHoursInput = document.getElementById('notificationHours');
         if (notificationHoursInput) {
           // 将通知小时数组格式化为逗号分隔的字符串，便于管理员查看与编辑
@@ -3746,6 +3756,7 @@ const configPage = `
         TIMEZONE: document.getElementById('timezone').value.trim(),
         THIRD_PARTY_API_TOKEN: document.getElementById('thirdPartyToken').value.trim(),
         PUBLIC_BASE_URL: document.getElementById('publicBaseUrl').value.trim(),
+        RENEW_BASE: document.getElementById('renewBase').value,
         // 前端先行整理通知小时列表，后端仍会再次校验
         NOTIFICATION_HOURS: (() => {
           const raw = document.getElementById('notificationHours').value.trim();
@@ -4229,7 +4240,8 @@ const api = {
             ENABLED_NOTIFIERS: newConfig.ENABLED_NOTIFIERS || ['notifyx'],
             TIMEZONE: newConfig.TIMEZONE || config.TIMEZONE || 'UTC',
             THIRD_PARTY_API_TOKEN: newConfig.THIRD_PARTY_API_TOKEN || '',
-            PUBLIC_BASE_URL: normalizePublicBaseUrl(newConfig.PUBLIC_BASE_URL || '')
+            PUBLIC_BASE_URL: normalizePublicBaseUrl(newConfig.PUBLIC_BASE_URL || ''),
+            RENEW_BASE: newConfig.RENEW_BASE === 'expiry' ? 'expiry' : 'now'
           };
 
           const rawNotificationHours = Array.isArray(newConfig.NOTIFICATION_HOURS)
@@ -4768,7 +4780,8 @@ async function getConfig(env) {
       TIMEZONE: config.TIMEZONE || 'UTC', // 新增时区字段
       NOTIFICATION_HOURS: Array.isArray(config.NOTIFICATION_HOURS) ? config.NOTIFICATION_HOURS : [],
       THIRD_PARTY_API_TOKEN: config.THIRD_PARTY_API_TOKEN || '',
-      PUBLIC_BASE_URL: normalizePublicBaseUrl(config.PUBLIC_BASE_URL || '')
+      PUBLIC_BASE_URL: normalizePublicBaseUrl(config.PUBLIC_BASE_URL || ''),
+      RENEW_BASE: config.RENEW_BASE === 'expiry' ? 'expiry' : 'now'
     };
 
     console.log('[配置] 最终配置用户名:', finalConfig.ADMIN_USERNAME);
@@ -4806,7 +4819,8 @@ async function getConfig(env) {
       NOTIFICATION_HOURS: [],
       TIMEZONE: 'UTC', // 新增时区字段
       THIRD_PARTY_API_TOKEN: '',
-      PUBLIC_BASE_URL: ''
+      PUBLIC_BASE_URL: '',
+      RENEW_BASE: 'now'
     };
   }
 }
@@ -5078,23 +5092,23 @@ async function toggleSubscriptionStatus(id, isActive, env) {
   }
 }
 
-function calculateNextRenewalExpiryDate(subscription) {
+function calculateNextRenewalExpiryDate(subscription, baseDate) {
   const periodValue = Number(subscription.periodValue);
   const periodUnit = subscription.periodUnit;
   if (!(periodValue > 0) || !['day', 'month', 'year'].includes(periodUnit)) {
     throw new Error('当前订阅缺少有效周期，无法手动续期');
   }
 
-  const expiryDate = new Date(subscription.expiryDate);
-  if (isNaN(expiryDate.getTime())) {
-    throw new Error('到期日期格式无效，无法续期');
+  const normalizedBaseDate = baseDate ? new Date(baseDate) : new Date(subscription.expiryDate);
+  if (isNaN(normalizedBaseDate.getTime())) {
+    throw new Error('续期基准时间无效，无法续期');
   }
 
   if (subscription.useLunar) {
     const lunar = lunarCalendar.solar2lunar(
-      expiryDate.getFullYear(),
-      expiryDate.getMonth() + 1,
-      expiryDate.getDate()
+      normalizedBaseDate.getFullYear(),
+      normalizedBaseDate.getMonth() + 1,
+      normalizedBaseDate.getDate()
     );
     if (!lunar) {
       throw new Error('农历日期超出支持范围（1900-2100年）');
@@ -5104,7 +5118,7 @@ function calculateNextRenewalExpiryDate(subscription) {
     return new Date(solar.year, solar.month - 1, solar.day);
   }
 
-  const nextExpiryDate = new Date(expiryDate);
+  const nextExpiryDate = new Date(normalizedBaseDate);
   if (periodUnit === 'day') {
     nextExpiryDate.setDate(nextExpiryDate.getDate() + periodValue);
   } else if (periodUnit === 'month') {
@@ -5118,6 +5132,9 @@ function calculateNextRenewalExpiryDate(subscription) {
 
 async function renewSubscription(id, env, options = {}) {
   try {
+    const config = await getConfig(env);
+    const timezone = config?.TIMEZONE || 'UTC';
+    const renewBase = config?.RENEW_BASE === 'expiry' ? 'expiry' : 'now';
     const subscriptions = await getAllSubscriptions(env);
     const index = subscriptions.findIndex(s => s.id === id);
 
@@ -5126,7 +5143,12 @@ async function renewSubscription(id, env, options = {}) {
     }
 
     const subscription = subscriptions[index];
-    const nextExpiryDate = calculateNextRenewalExpiryDate(subscription);
+    const expiryDate = new Date(subscription.expiryDate);
+    if (isNaN(expiryDate.getTime())) {
+      return { success: false, message: '到期日期格式无效，无法续期' };
+    }
+    const baseDate = renewBase === 'expiry' ? expiryDate : getCurrentTimeInTimezone(timezone);
+    const nextExpiryDate = calculateNextRenewalExpiryDate(subscription, baseDate);
     const source = options.source || 'manual';
 
     subscriptions[index] = {
