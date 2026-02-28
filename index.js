@@ -5575,12 +5575,12 @@ async function sendNotificationToAllChannels(title, commonContent, config, logPr
         const barkSubscriptions = Array.isArray(options.barkSubscriptions) ? options.barkSubscriptions : [];
         if (barkSubscriptions.length > 0) {
           for (const sub of barkSubscriptions) {
-            const barkTitle = `${title} - ${sub.name}`;
+            const barkTitle = title.includes(sub.name) ? title : `${title} - ${sub.name}`;
             const renewToken = await createRenewActionToken(sub.id, config);
             const renewUrl = buildRenewActionUrl(config, renewToken, barkBaseUrl);
             const baseContent = formatNotificationContent([sub], config).replace(/[\*#`]/g, '');
             const barkContent = renewUrl
-              ? `${baseContent}\n\n[点击续期](${renewUrl})`
+              ? `${baseContent}\n续期完成点击同步: [续期完成点击同步](${renewUrl})`
               : `${baseContent}\n续期链接不可用，请先在系统配置中填写公开访问地址。`;
             const barkSuccess = await sendBarkNotification(barkTitle, barkContent, config, { useMarkdown: true });
             console.log(`${logPrefix} 发送Bark订阅通知(${sub.name}) ${barkSuccess ? '成功' : '失败'}`);
