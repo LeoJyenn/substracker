@@ -4433,7 +4433,7 @@ const api = {
       }
 
       if (parts[3] === 'test-notify' && method === 'POST') {
-        const result = await testSingleSubscriptionNotification(id, env);
+        const result = await testSingleSubscriptionNotification(id, env, request.url);
         return new Response(JSON.stringify(result), { status: result.success ? 200 : 500, headers: { 'Content-Type': 'application/json' } });
       }
 
@@ -4654,8 +4654,9 @@ async function createRenewActionToken(subscriptionId, config) {
   return createSignedActionToken(payload, secret);
 }
 
-function buildRenewActionUrl(config, token) {
-  const baseUrl = normalizePublicBaseUrl(config && config.PUBLIC_BASE_URL ? config.PUBLIC_BASE_URL : '');
+function buildRenewActionUrl(config, token, fallbackBaseUrl = '') {
+  const configBaseUrl = normalizePublicBaseUrl(config && config.PUBLIC_BASE_URL ? config.PUBLIC_BASE_URL : '');
+  const baseUrl = configBaseUrl || normalizePublicBaseUrl(fallbackBaseUrl);
   if (!baseUrl || !token) {
     return '';
   }
@@ -5144,7 +5145,7 @@ async function renewSubscription(id, env, options = {}) {
   }
 }
 
-async function testSingleSubscriptionNotification(id, env) {
+async function testSingleSubscriptionNotification(id, env, requestUrl = '') {
   try {
     const subscription = await getSubscription(id, env);
     if (!subscription) {
@@ -5185,9 +5186,18 @@ async function testSingleSubscriptionNotification(id, env) {
 
     // 使用多渠道发送
     const tags = extractTagsFromSubscriptions([subscription]);
+    let barkBaseUrl = '';
+    if (requestUrl) {
+      try {
+        barkBaseUrl = new URL(requestUrl).origin;
+      } catch (error) {
+        barkBaseUrl = '';
+      }
+    }
     await sendNotificationToAllChannels(title, commonContent, config, '[手动测试]', {
       metadata: { tags },
-      barkSubscriptions: [subscription]
+      barkSubscriptions: [subscription],
+      barkBaseUrl
     });
 
     return { success: true, message: '测试通知已发送到所有启用的渠道' };
@@ -5516,6 +5526,7 @@ ${reminderText}
 
 async function sendNotificationToAllChannels(title, commonContent, config, logPrefix = '[定时任务]', options = {}) {
   const metadata = options.metadata || {};
+  const barkBaseUrl = typeof options.barkBaseUrl === 'string' ? options.barkBaseUrl : '';
     if (!config.ENABLED_NOTIFIERS || config.ENABLED_NOTIFIERS.length === 0) {
         console.log(`${logPrefix} 未启用任何通知渠道。`);
         return;
@@ -5562,7 +5573,7 @@ async function sendNotificationToAllChannels(title, commonContent, config, logPr
               : '到期提醒';
             const barkTitle = `${title} - ${sub.name}`;
             const renewToken = await createRenewActionToken(sub.id, config);
-            const renewUrl = buildRenewActionUrl(config, renewToken);
+            const renewUrl = buildRenewActionUrl(config, renewToken, barkBaseUrl);
             const barkMarkdown = renewUrl
               ? `## ${sub.name}\n\n- 到期日期: ${nextDateText}\n- 状态: ${daysText}\n\n[一键续期（推进 1 个周期）](${renewUrl})`
               : `## ${sub.name}\n\n- 到期日期: ${nextDateText}\n- 状态: ${daysText}\n\n> 请先在系统配置中填写公开访问地址后再使用一键续期。`;
