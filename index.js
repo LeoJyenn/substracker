@@ -5578,7 +5578,7 @@ async function sendNotificationToAllChannels(title, commonContent, config, logPr
             const barkTitle = `${title} - ${sub.name}`;
             const renewToken = await createRenewActionToken(sub.id, config);
             const renewUrl = buildRenewActionUrl(config, renewToken, barkBaseUrl);
-            const baseContent = formatNotificationContent([sub], config).replace(/(\**|\*|##|#|`)/g, '');
+            const baseContent = formatNotificationContent([sub], config).replace(/[\*#`]/g, '');
             const barkContent = renewUrl
               ? `${baseContent}\n点击续期: [点击续期](${renewUrl})`
               : `${baseContent}\n续期链接不可用，请先在系统配置中填写公开访问地址。`;
