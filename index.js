@@ -5575,8 +5575,8 @@ async function sendNotificationToAllChannels(title, commonContent, config, logPr
             const renewToken = await createRenewActionToken(sub.id, config);
             const renewUrl = buildRenewActionUrl(config, renewToken, barkBaseUrl);
             const barkMarkdown = renewUrl
-              ? `## ${sub.name}\n\n- 到期日期: ${nextDateText}\n- 状态: ${daysText}\n\n[一键续期（推进 1 个周期）](${renewUrl})`
-              : `## ${sub.name}\n\n- 到期日期: ${nextDateText}\n- 状态: ${daysText}\n\n> 请先在系统配置中填写公开访问地址后再使用一键续期。`;
+              ? `订阅: ${sub.name}\n到期日期: ${nextDateText}\n状态: ${daysText}\n\n[一键续期（推进1个周期）](${renewUrl})`
+              : `订阅: ${sub.name}\n到期日期: ${nextDateText}\n状态: ${daysText}\n\n请先在系统配置中填写公开访问地址后再使用一键续期。`;
             const barkSuccess = await sendBarkNotification(barkTitle, barkMarkdown, config, { markdown: true });
             console.log(`${logPrefix} 发送Bark订阅通知(${sub.name}) ${barkSuccess ? '成功' : '失败'}`);
           }
