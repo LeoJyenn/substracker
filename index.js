@@ -5580,9 +5580,9 @@ async function sendNotificationToAllChannels(title, commonContent, config, logPr
             const renewUrl = buildRenewActionUrl(config, renewToken, barkBaseUrl);
             const baseContent = formatNotificationContent([sub], config).replace(/(\**|\*|##|#|`)/g, '');
             const barkContent = renewUrl
-              ? `${baseContent}\n续期链接: ${renewUrl}`
+              ? `${baseContent}\n点击续期: [点击续期](${renewUrl})`
               : `${baseContent}\n续期链接不可用，请先在系统配置中填写公开访问地址。`;
-            const barkSuccess = await sendBarkNotification(barkTitle, barkContent, config);
+            const barkSuccess = await sendBarkNotification(barkTitle, barkContent, config, { useMarkdown: true });
             console.log(`${logPrefix} 发送Bark订阅通知(${sub.name}) ${barkSuccess ? '成功' : '失败'}`);
           }
         } else {
@@ -5651,7 +5651,7 @@ async function sendNotifyXNotification(title, content, description, config) {
   }
 }
 
-async function sendBarkNotification(title, content, config) {
+async function sendBarkNotification(title, content, config, options = {}) {
   try {
     if (!config.BARK_DEVICE_KEY) {
       console.error('[Bark] 通知未配置，缺少设备Key');
@@ -5664,9 +5664,14 @@ async function sendBarkNotification(title, content, config) {
     const url = serverUrl + '/push';
     const payload = {
       title: title,
-      body: content,
       device_key: config.BARK_DEVICE_KEY
     };
+
+    if (options.useMarkdown) {
+      payload.markdown = content;
+    } else {
+      payload.body = content;
+    }
 
     if (config.BARK_ICON) {
       payload.icon = config.BARK_ICON;
