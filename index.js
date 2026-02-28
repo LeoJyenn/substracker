@@ -1212,6 +1212,17 @@ const adminPage = `
             <p class="text-xs text-gray-500 mt-1">0 = 仅在到期时提醒；选择“小时”需要将 Worker 定时任务调整为小时级执行</p>
             <div class="error-message text-red-500"></div>
           </div>
+
+          <div>
+            <label for="renewBase" class="block text-sm font-medium text-gray-700 mb-1">手动续期计算基准</label>
+            <select id="renewBase"
+              class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 bg-white">
+              <option value="now" selected>按当前时间推算</option>
+              <option value="expiry">按原到期时间推算</option>
+            </select>
+            <p class="text-xs text-gray-500 mt-1">控制“已续期/点击同步”后到期日推进的基准时间。</p>
+            <div class="error-message text-red-500"></div>
+          </div>
           
           <div>
             <label class="block text-sm font-medium text-gray-700 mb-3">选项设置</label>
@@ -2203,6 +2214,7 @@ const lunarBiz = {
       document.getElementById('category').value = '';
       document.getElementById('reminderValue').value = '7';
       document.getElementById('reminderUnit').value = 'day';
+      document.getElementById('renewBase').value = 'now';
       document.getElementById('isActive').checked = true;
       document.getElementById('autoRenew').checked = true;
 
@@ -2885,7 +2897,8 @@ const lunarBiz = {
         reminderValue: reminderValue,
         reminderDays: reminderUnit === 'day' ? reminderValue : 0,
         reminderHours: reminderUnit === 'hour' ? reminderValue : undefined,
-        useLunar: document.getElementById('useLunar').checked
+        useLunar: document.getElementById('useLunar').checked,
+        renewBase: document.getElementById('renewBase').value
       };
       
       const submitButton = e.target.querySelector('button[type="submit"]');
@@ -2964,6 +2977,7 @@ const lunarBiz = {
           document.getElementById('reminderUnit').value = reminderUnit;
           document.getElementById('reminderValue').value = reminderValue;
           document.getElementById('useLunar').checked = !!subscription.useLunar;
+          document.getElementById('renewBase').value = subscription.renewBase === 'expiry' ? 'expiry' : 'now';
           
           clearFieldErrors();
           loadLunarPreference();
@@ -3361,15 +3375,6 @@ const configPage = `
             <p class="mt-1 text-sm text-gray-500">用于生成 Bark 一键续期链接。建议填写当前站点可公网访问的完整地址（不要带末尾 /）。</p>
           </div>
 
-          <div class="mb-6">
-            <label for="renewBase" class="block text-sm font-medium text-gray-700">手动续期计算基准</label>
-            <select id="renewBase" class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
-              <option value="now">按当前时间推算（推荐）</option>
-              <option value="expiry">按原到期时间推算</option>
-            </select>
-            <p class="mt-1 text-sm text-gray-500">“按当前时间推算”适合提前提醒场景，点击“已续期/点击同步”后从当前时间往后加一个周期。</p>
-          </div>
-          
           <div id="telegramConfig" class="config-section">
             <h4 class="text-md font-medium text-gray-900 mb-3">Telegram 配置</h4>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
@@ -3605,7 +3610,6 @@ const configPage = `
         document.getElementById('barkSound').value = config.BARK_SOUND || '';
         document.getElementById('thirdPartyToken').value = config.THIRD_PARTY_API_TOKEN || '';
         document.getElementById('publicBaseUrl').value = config.PUBLIC_BASE_URL || '';
-        document.getElementById('renewBase').value = config.RENEW_BASE || 'now';
         const notificationHoursInput = document.getElementById('notificationHours');
         if (notificationHoursInput) {
           // 将通知小时数组格式化为逗号分隔的字符串，便于管理员查看与编辑
@@ -3756,7 +3760,6 @@ const configPage = `
         TIMEZONE: document.getElementById('timezone').value.trim(),
         THIRD_PARTY_API_TOKEN: document.getElementById('thirdPartyToken').value.trim(),
         PUBLIC_BASE_URL: document.getElementById('publicBaseUrl').value.trim(),
-        RENEW_BASE: document.getElementById('renewBase').value,
         // 前端先行整理通知小时列表，后端仍会再次校验
         NOTIFICATION_HOURS: (() => {
           const raw = document.getElementById('notificationHours').value.trim();
@@ -4240,8 +4243,7 @@ const api = {
             ENABLED_NOTIFIERS: newConfig.ENABLED_NOTIFIERS || ['notifyx'],
             TIMEZONE: newConfig.TIMEZONE || config.TIMEZONE || 'UTC',
             THIRD_PARTY_API_TOKEN: newConfig.THIRD_PARTY_API_TOKEN || '',
-            PUBLIC_BASE_URL: normalizePublicBaseUrl(newConfig.PUBLIC_BASE_URL || ''),
-            RENEW_BASE: newConfig.RENEW_BASE === 'expiry' ? 'expiry' : 'now'
+            PUBLIC_BASE_URL: normalizePublicBaseUrl(newConfig.PUBLIC_BASE_URL || '')
           };
 
           const rawNotificationHours = Array.isArray(newConfig.NOTIFICATION_HOURS)
@@ -4780,8 +4782,7 @@ async function getConfig(env) {
       TIMEZONE: config.TIMEZONE || 'UTC', // 新增时区字段
       NOTIFICATION_HOURS: Array.isArray(config.NOTIFICATION_HOURS) ? config.NOTIFICATION_HOURS : [],
       THIRD_PARTY_API_TOKEN: config.THIRD_PARTY_API_TOKEN || '',
-      PUBLIC_BASE_URL: normalizePublicBaseUrl(config.PUBLIC_BASE_URL || ''),
-      RENEW_BASE: config.RENEW_BASE === 'expiry' ? 'expiry' : 'now'
+      PUBLIC_BASE_URL: normalizePublicBaseUrl(config.PUBLIC_BASE_URL || '')
     };
 
     console.log('[配置] 最终配置用户名:', finalConfig.ADMIN_USERNAME);
@@ -4819,8 +4820,7 @@ async function getConfig(env) {
       NOTIFICATION_HOURS: [],
       TIMEZONE: 'UTC', // 新增时区字段
       THIRD_PARTY_API_TOKEN: '',
-      PUBLIC_BASE_URL: '',
-      RENEW_BASE: 'now'
+      PUBLIC_BASE_URL: ''
     };
   }
 }
@@ -4931,6 +4931,7 @@ async function createSubscription(subscription, env) {
     }
 
     const reminderSetting = resolveReminderSetting(subscription);
+    const renewBase = normalizeRenewBase(subscription.renewBase);
 
     const newSubscription = {
       id: Date.now().toString(), // 前端使用本地时间戳
@@ -4948,6 +4949,7 @@ async function createSubscription(subscription, env) {
       notes: subscription.notes || '',
       isActive: subscription.isActive !== false,
       autoRenew: subscription.autoRenew !== false,
+      renewBase: renewBase,
       useLunar: useLunar,
       createdAt: new Date().toISOString()
     };
@@ -5023,6 +5025,9 @@ if (useLunar) {
       reminderDays: subscription.reminderDays !== undefined ? subscription.reminderDays : subscriptions[index].reminderDays
     };
     const reminderSetting = resolveReminderSetting(reminderSource);
+    const renewBase = subscription.renewBase !== undefined
+      ? normalizeRenewBase(subscription.renewBase)
+      : normalizeRenewBase(subscriptions[index].renewBase);
 
     subscriptions[index] = {
       ...subscriptions[index],
@@ -5040,6 +5045,7 @@ if (useLunar) {
       notes: subscription.notes || '',
       isActive: subscription.isActive !== undefined ? subscription.isActive : subscriptions[index].isActive,
       autoRenew: subscription.autoRenew !== undefined ? subscription.autoRenew : (subscriptions[index].autoRenew !== undefined ? subscriptions[index].autoRenew : true),
+      renewBase: renewBase,
       useLunar: useLunar,
       updatedAt: new Date().toISOString()
     };
@@ -5134,7 +5140,6 @@ async function renewSubscription(id, env, options = {}) {
   try {
     const config = await getConfig(env);
     const timezone = config?.TIMEZONE || 'UTC';
-    const renewBase = config?.RENEW_BASE === 'expiry' ? 'expiry' : 'now';
     const subscriptions = await getAllSubscriptions(env);
     const index = subscriptions.findIndex(s => s.id === id);
 
@@ -5147,6 +5152,7 @@ async function renewSubscription(id, env, options = {}) {
     if (isNaN(expiryDate.getTime())) {
       return { success: false, message: '到期日期格式无效，无法续期' };
     }
+    const renewBase = normalizeRenewBase(subscription.renewBase);
     const baseDate = renewBase === 'expiry' ? expiryDate : getCurrentTimeInTimezone(timezone);
     const nextExpiryDate = calculateNextRenewalExpiryDate(subscription, baseDate);
     const source = options.source || 'manual';
@@ -5446,6 +5452,10 @@ function shouldTriggerReminder(reminder, daysDiff, hoursDiff) {
     return daysDiff === 0;
   }
   return daysDiff >= 0 && daysDiff <= reminder.value;
+}
+
+function normalizeRenewBase(value) {
+  return value === 'expiry' ? 'expiry' : 'now';
 }
 
 function formatNotificationContent(subscriptions, config) {
