@@ -5274,10 +5274,31 @@ async function sendNotificationToAllChannels(title, commonContent, config, logPr
         console.log(`${logPrefix} 发送邮件通知 ${success ? '成功' : '失败'}`);
     }
     if (config.ENABLED_NOTIFIERS.includes('bark')) {
-        const barkContent = commonContent.replace(/(\**|\*|##|#|`)/g, '');
-        const success = await sendBarkNotification(title, barkContent, config);
+        const barkPayload = buildBarkMessageFromCommonContent(commonContent);
+        const success = await sendBarkNotification(title, barkPayload.content, config, { useMarkdown: barkPayload.useMarkdown });
         console.log(`${logPrefix} 发送Bark通知 ${success ? '成功' : '失败'}`);
     }
+}
+
+function buildBarkMessageFromCommonContent(commonContent) {
+  const markdownPattern = /(\[[^\]]+\]\((https?:\/\/[^\s)]+)\)|\*\*[^*]+\*\*|`[^`]+`|\*[^*]+\*|_[^_]+_)/;
+  let useMarkdown = false;
+
+  const lines = String(commonContent || '').split('\n').map(line => {
+    if (line.startsWith('备注: ')) {
+      const notesValue = line.slice('备注: '.length);
+      if (markdownPattern.test(notesValue)) {
+        useMarkdown = true;
+      }
+      return line;
+    }
+    return line.replace(/(\**|\*|##|#|`)/g, '');
+  });
+
+  return {
+    content: lines.join('\n'),
+    useMarkdown
+  };
 }
 
 async function sendTelegramNotification(message, config) {
@@ -5349,8 +5370,7 @@ async function sendBarkNotification(title, content, config, options = {}) {
 
     const serverUrl = config.BARK_SERVER || 'https://api.day.app';
     const url = serverUrl + '/push';
-    const hasMarkdownLink = typeof content === 'string' && /\[[^\]]+\]\((https?:\/\/[^\s)]+)\)/.test(content);
-    const useMarkdown = options.useMarkdown === true || hasMarkdownLink;
+    const useMarkdown = options.useMarkdown === true;
     const payload = {
       title: title,
       device_key: config.BARK_DEVICE_KEY
