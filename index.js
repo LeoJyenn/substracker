@@ -5338,7 +5338,7 @@ async function sendNotifyXNotification(title, content, description, config) {
   }
 }
 
-async function sendBarkNotification(title, content, config) {
+async function sendBarkNotification(title, content, config, options = {}) {
   try {
     if (!config.BARK_DEVICE_KEY) {
       console.error('[Bark] 通知未配置，缺少设备Key');
@@ -5349,11 +5349,18 @@ async function sendBarkNotification(title, content, config) {
 
     const serverUrl = config.BARK_SERVER || 'https://api.day.app';
     const url = serverUrl + '/push';
+    const hasMarkdownLink = typeof content === 'string' && /\[[^\]]+\]\((https?:\/\/[^\s)]+)\)/.test(content);
+    const useMarkdown = options.useMarkdown === true || hasMarkdownLink;
     const payload = {
       title: title,
-      body: content,
       device_key: config.BARK_DEVICE_KEY
     };
+
+    if (useMarkdown) {
+      payload.markdown = content;
+    } else {
+      payload.body = content;
+    }
 
     if (config.BARK_ICON) {
       payload.icon = config.BARK_ICON;
