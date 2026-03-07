@@ -5284,20 +5284,51 @@ function buildBarkMessageFromCommonContent(commonContent) {
   const markdownPattern = /(\[[^\]]+\]\((https?:\/\/[^\s)]+)\)|\*\*[^*]+\*\*|`[^`]+`|\*[^*]+\*|_[^_]+_)/;
   let useMarkdown = false;
 
-  const lines = String(commonContent || '').split('\n').map(line => {
+  const rawLines = String(commonContent || '').split('\n');
+  let inNotesBlock = false;
+  const lines = rawLines.map(line => {
     if (line.startsWith('备注: ')) {
+      inNotesBlock = true;
       const notesValue = line.slice('备注: '.length);
       if (markdownPattern.test(notesValue)) {
         useMarkdown = true;
       }
-      return line;
+      return { kind: 'note', text: line };
     }
-    return line.replace(/(\**|\*|##|#|`)/g, '');
+
+    if (inNotesBlock) {
+      if (line.trim() === '') {
+        inNotesBlock = false;
+        return { kind: 'text', text: '' };
+      }
+      if (markdownPattern.test(line)) {
+        useMarkdown = true;
+      }
+      return { kind: 'note', text: line };
+    }
+
+    return { kind: 'text', text: line.replace(/(\**|\*|##|#|`)/g, '') };
   });
 
+  if (!useMarkdown) {
+    return {
+      content: lines.map(item => item.text).join('\n'),
+      useMarkdown: false
+    };
+  }
+
+  const escapeMarkdownText = text => text
+    .replace(/\\/g, '\\\\')
+    .replace(/([_*`#[\](){}!|>])/g, '\\$1');
+
+  const markdownContent = lines
+    .map(item => item.kind === 'note' ? item.text : escapeMarkdownText(item.text))
+    .map(line => line ? line + '  ' : line)
+    .join('\n');
+
   return {
-    content: lines.join('\n'),
-    useMarkdown
+    content: markdownContent,
+    useMarkdown: true
   };
 }
 
